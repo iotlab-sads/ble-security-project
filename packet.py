@@ -3,9 +3,28 @@ import json
 import sys
 import statistics
 import os
+from pymongo import MongoClient
 from tabulate import tabulate
 from wcwidth import wcswidth
 from pprint import pprint
+
+def save_to_mongodb(database_name, collection_name, data):
+    """
+    MongoDB에 데이터를 저장합니다.
+    :param database_name: MongoDB 데이터베이스 이름
+    :param collection_name: MongoDB 컬렉션 이름
+    :param data: 저장할 데이터 (딕셔너리 형식)
+    """
+    try:
+        client = MongoClient("mongodb://localhost:27017/")  # 로컬 MongoDB에 연결. 포트 27018로 열어놨는데 mongodb는 주로 27017.
+        db = client[database_name]
+        collection = db[collection_name]
+        collection.insert_one(data)  # 데이터 저장
+        print("MongoDB 저장 성공:", data)
+    except Exception as e:
+        print("MongoDB 저장 오류:", e)
+    finally:
+        client.close()
 
 
 def find_interface():
@@ -139,6 +158,9 @@ def parse_ble_packets(
                         address = btle.get("btle.advertising_address")
                         timestamp = layers.get("frame", {}).get("frame.time_epoch")
                         rssi = nordic_ble.get("nordic_ble.rssi")
+                        # 광고 패킷 타입 확인(ADV_IND여야 함)
+                        pdu_type = btle.get("btle.advertising_header_tree", {}).get("btle.advertising_header.pdu_type")
+
                         try:
                             uuid = (
                                 btle.get("btcommon.eir_ad.advertising_data")
@@ -155,7 +177,7 @@ def parse_ble_packets(
                             is_valid = is_valid and uuid == transform_uuid(uuid_filter)
 
                         # 필터링: 채널 및 광고 주소
-                        if is_valid and int(channel_num) in channel_data:
+                        if is_valid and pdu_type == "0x00" and int(channel_num) in channel_data:
                             channel = int(channel_num)
                             data = channel_data[channel]
 
@@ -274,6 +296,26 @@ def parse_ble_packets(
 
                                 print("\n모든 채널의 평균 계산 결과:")
                                 print(table)
+                                ### mongodb에 table 저장
+                                # 전체 채널의 avg_rssi 평균 및 min_delta_time 계산
+                                all_avg_rssi = statistics.mean(
+                                    result["avg_rssi"] for result in channel_results.values()
+                                )
+                                all_min_delta_time = min(
+                                    result["std_dev_delta_time"] for result in channel_results.values()
+                                )
+
+                                # MongoDB에 하나의 문서 저장
+                                save_to_mongodb(
+                                    "ble_data",  # MongoDB 데이터베이스 이름
+                                    "uuid_analysis_results",  # MongoDB 컬렉션 이름
+                                    {
+                                        "uuid": uuid_filter,
+                                        "advertising_address": advertising_address,
+                                        "avg_rssi": all_avg_rssi,
+                                        "min_delta_time": all_min_delta_time,
+                                    },
+                                )                                
 
                                 # 프로세스 종료
                                 process.terminate()
