@@ -6,6 +6,7 @@ import time
 from pymongo import MongoClient
 import smtplib
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 
 # MongoDB 설정
@@ -41,26 +42,80 @@ def find_interface():
 
 
 def send_alert_email(device_info, delta_time, min_delta):
-    """스푸핑 탐지 알림 이메일 전송"""
-    subject = f"[BLE Spoof Alert] {device_info}"
+    
+    subject = f"⚠️ [BLE Spoof Alert] {device_info}"
+    
+    # HTML 이메일 본문
     body = f"""
-    BLE 패킷 스푸핑이 탐지되었습니다!
-
-    디바이스 정보: {device_info}
-    탐지 시간: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-    측정 간격: {delta_time:.6f} 초
-    허용 최소 간격: {min_delta:.6f} 초
+    <html>
+    <head>
+        <style>
+            body {{
+                font-family: Arial, sans-serif;
+                color: #333;
+                background-color: #f4f4f4;
+                padding: 20px;
+            }}
+            .container {{
+                max-width: 600px;
+                margin: auto;
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0px 0px 10px #ccc;
+            }}
+            h2 {{
+                color: #d9534f;
+            }}
+            p {{
+                font-size: 16px;
+                line-height: 1.5;
+            }}
+            .alert {{
+                padding: 10px;
+                background-color: #ffeb3b;
+                color: #333;
+                border-radius: 5px;
+                font-weight: bold;
+            }}
+            .footer {{
+                margin-top: 20px;
+                font-size: 12px;
+                color: #777;
+                text-align: center;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2>⚠️ BLE 패킷 스푸핑 탐지됨!</h2>
+            <p><strong>🔍 디바이스 정보:</strong> {device_info}</p>
+            <p><strong>⏰ 탐지 시간:</strong> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
+            <p class="alert">🚨 <strong>측정 간격:</strong> {delta_time:.6f} 초</p>
+            <p class="alert">⛔ <strong>허용 최소 간격:</strong> {min_delta:.6f} 초</p>
+            
+            <p>📡 즉시 대응이 필요합니다!</p>
+            
+            <div class="footer">
+                이 이메일은 자동으로 생성되었습니다.<br>
+                <h5>SKKU IoTLab BLE Spoofing Montitoring System</h5>
+            </div>
+        </div>
+    </body>
+    </html>
     """
 
-    msg = MIMEText(body)
+    # 이메일 객체 생성
+    msg = MIMEMultipart()
     msg["Subject"] = subject
     msg["From"] = EMAIL_CONFIG["sender_email"]
     msg["To"] = EMAIL_CONFIG["receiver_email"]
 
+    # HTML 본문 추가
+    msg.attach(MIMEText(body, "html"))
+
     try:
-        with smtplib.SMTP(
-            EMAIL_CONFIG["smtp_server"], EMAIL_CONFIG["smtp_port"]
-        ) as server:
+        with smtplib.SMTP(EMAIL_CONFIG["smtp_server"], EMAIL_CONFIG["smtp_port"]) as server:
             server.starttls()
             server.login(EMAIL_CONFIG["sender_email"], EMAIL_CONFIG["sender_password"])
             server.sendmail(
@@ -68,10 +123,9 @@ def send_alert_email(device_info, delta_time, min_delta):
                 EMAIL_CONFIG["receiver_email"],
                 msg.as_string(),
             )
-        print("경고 이메일 전송 성공")
+        print("경고 이메일 전송 성공!")
     except Exception as e:
         print(f"이메일 전송 실패: {e}")
-
 
 def get_min_delta(device_id):
     """MongoDB에서 디바이스의 최소 허용 간격 조회"""
