@@ -10,22 +10,35 @@ from pprint import pprint
 
 def save_to_mongodb(database_name, collection_name, data):
     """
-    MongoDB에 데이터를 저장합니다.
+    MongoDB에 데이터를 저장하고, 저장된 결과를 표 형태로 출력합니다.
     :param database_name: MongoDB 데이터베이스 이름
     :param collection_name: MongoDB 컬렉션 이름
     :param data: 저장할 데이터 (딕셔너리 형식)
     """
     try:
-        client = MongoClient("mongodb://localhost:27017/")  # 로컬 MongoDB에 연결. 포트 27018로 열어놨는데 mongodb는 주로 27017.
+        client = MongoClient("mongodb://localhost:27017/")  # MongoDB 연결
         db = client[database_name]
         collection = db[collection_name]
-        collection.insert_one(data)  # 데이터 저장
-        print("MongoDB 저장 성공:", data)
+        
+        # 데이터 저장
+        inserted_id = collection.insert_one(data).inserted_id
+        print(f"MongoDB 저장 성공 (문서 ID: {inserted_id})")
+
+        # 저장된 데이터 조회
+        saved_data = collection.find_one({"_id": inserted_id}, {"_id": 0})  # 저장된 데이터 불러오기
+
+        # 테이블 형식으로 변환
+        table_data = [[key, str(value)] for key, value in saved_data.items()]
+        headers = ["필드", "값"]
+
+        # 테이블 출력
+        print("저장된 MongoDB 데이터:")
+        print(tabulate(table_data, headers=headers, tablefmt="fancy_grid", stralign="center", numalign="center"))
+
     except Exception as e:
         print("MongoDB 저장 오류:", e)
     finally:
         client.close()
-
 
 def find_interface():
     print("Finding nRF Sniffer interface...")
@@ -198,9 +211,9 @@ def parse_ble_packets(
                             data["packet_count"] += 1
 
                             # 출력
-                            print(
-                                f"채널 {channel} 패킷 {data['packet_count']}: 광고 주소: {address}, RSSI: {rssi}, 타임스탬프: {timestamp}"
-                            )
+                            # print(
+                            #     f"채널 {channel} 패킷 {data['packet_count']}: 광고 주소: {address}, RSSI: {rssi}, 타임스탬프: {timestamp}"
+                            # )
 
                             # 모든 채널이 20개 이상 패킷을 받았는지 확인
                             all_channels_ready = all(
@@ -219,7 +232,7 @@ def parse_ble_packets(
                                         avg_delta_time = statistics.mean(
                                             data["timestamps"][:target_num_packet]
                                         )  # 20개로 자르기
-                                        pprint(data["timestamps"][:target_num_packet])
+                                        # pprint(data["timestamps"][:target_num_packet])
                                         std_dev_delta_time = statistics.stdev(
                                             data["timestamps"][:target_num_packet]
                                         )
@@ -294,7 +307,7 @@ def parse_ble_packets(
                                     stralign="center",
                                 )
 
-                                print("\n모든 채널의 평균 계산 결과:")
+                                # print("\n모든 채널의 평균 계산 결과:")
                                 print(table)
 
                                 # MongoDB에 하나의 문서 저장
@@ -307,12 +320,14 @@ def parse_ble_packets(
                                     data_to_save["advertising_address"] = advertising_address
 
                                 # 공통 필드 추가
-                                data_to_save["rssi"] = statistics.mean(
-                                    result["avg_rssi"] for result in channel_results.values()
+                                data_to_save["rssi"] = round(
+                                    statistics.mean(result["avg_rssi"] for result in channel_results.values()), 6
                                 )
-                                data_to_save["advertising_interval"] = min(
-                                    result["std_dev_delta_time"] for result in channel_results.values()
+                                data_to_save["advertising_interval"] = round(
+                                    min(result["std_dev_delta_time"] for result in channel_results.values()), 6
                                 )
+                                # 일단 현재는 persistent로 고정
+                                data_to_save["advertising_pattern"] = "persistent"
 
                                 # MongoDB 저장
                                 save_to_mongodb(
@@ -325,7 +340,8 @@ def parse_ble_packets(
                                 sys.exit(0)
 
                     except json.JSONDecodeError as e:
-                        print(f"JSON Decode Error: {e}")
+                        pass # 임시로 pass 해놓음
+                        # print(f"JSON Decode Error: {e}")
                     finally:
                         json_buffer = []  # 버퍼 초기화
                 json_buffer.append(line.strip())
