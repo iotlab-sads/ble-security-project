@@ -296,27 +296,30 @@ def parse_ble_packets(
 
                                 print("\n모든 채널의 평균 계산 결과:")
                                 print(table)
-                                ### mongodb에 table 저장
-                                # 전체 채널의 avg_rssi 평균 및 min_delta_time 계산
-                                all_avg_rssi = statistics.mean(
+
+                                # MongoDB에 하나의 문서 저장
+                                # MongoDB 저장 데이터 구성
+                                data_to_save = {}
+
+                                if uuid_filter != "all":
+                                    data_to_save["uuid"] = uuid_filter
+                                if advertising_address != "all":
+                                    data_to_save["advertising_address"] = advertising_address
+
+                                # 공통 필드 추가
+                                data_to_save["rssi"] = statistics.mean(
                                     result["avg_rssi"] for result in channel_results.values()
                                 )
-                                all_min_delta_time = min(
+                                data_to_save["advertising_interval"] = min(
                                     result["std_dev_delta_time"] for result in channel_results.values()
                                 )
 
-                                # MongoDB에 하나의 문서 저장
+                                # MongoDB 저장
                                 save_to_mongodb(
                                     "ble_data",  # MongoDB 데이터베이스 이름
                                     "uuid_analysis_results",  # MongoDB 컬렉션 이름
-                                    {
-                                        "uuid": uuid_filter,
-                                        "advertising_address": advertising_address,
-                                        "avg_rssi": all_avg_rssi,
-                                        "min_delta_time": all_min_delta_time,
-                                    },
-                                )                                
-
+                                    data_to_save,
+                                )
                                 # 프로세스 종료
                                 process.terminate()
                                 sys.exit(0)
