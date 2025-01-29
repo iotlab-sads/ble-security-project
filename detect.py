@@ -89,7 +89,7 @@ def send_alert_email(device_info, delta_time, min_delta):
     <body>
         <div class="container">
             <h2>⚠️ BLE 패킷 스푸핑 탐지됨!</h2>
-            <p><strong>🔍 디바이스 정보:</strong> {device_info}</p>
+            <p><strong>🔍 디바이스 맥 주소:</strong> {device_info}</p>
             <p><strong>⏰ 탐지 시간:</strong> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
             <p class="alert">🚨 <strong>측정 간격:</strong> {delta_time:.6f} 초</p>
             <p class="alert">⛔ <strong>허용 최소 간격:</strong> {min_delta:.6f} 초</p>
@@ -203,13 +203,13 @@ def monitor_ble_traffic(interface, target_addr, target_uuid):
 
                         if last_time is not None:
                             delta = current_time - last_time
-
-                            if delta < min_delta:
+                            print(delta)
+                            if delta < (min_delta - 0.010):  # INT 검사 시 10ms 오차 고려
                                 print(f"[!] 스푸핑 탐지! ({device_id})")
                                 print(
-                                    f"    측정 간격: {delta:.6f}s < 허용 최소: {min_delta:.6f}s"
+                                    f"    측정 간격: {delta:.6f}s < 허용 최소(Tlb - 10ms): {(min_delta - 0.010):.6f}s"
                                 )
-                                send_alert_email(device_id, delta, min_delta)
+                                send_alert_email(device_id, delta, min_delta - 0.010)
 
                         last_timestamps[device_id] = current_time
                     json_buffer = []
