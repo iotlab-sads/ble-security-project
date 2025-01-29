@@ -4,6 +4,7 @@ import dbus.service
 from gi.repository import GLib
 import subprocess
 import re
+import time
 
 BLUEZ_SERVICE_NAME = "org.bluez"
 ADAPTER_INTERFACE = "org.bluez.Adapter1"
@@ -17,21 +18,20 @@ class IBeaconAdvertisement(dbus.service.Object):
     def __init__(self, bus, index, uuid, major, minor, tx_power):
         self.path = self.PATH_BASE + str(index)
         self.bus = bus
-        self.ad_type = "broadcast"
+        self.ad_type = "peripheral"
 
-        # iBeacon 데이터 생성
         self.manufacturer_data = dbus.Dictionary(
             {
                 0x004C: dbus.Array(
-                    [  # Apple Company ID
+                    [
                         0x02,
-                        0x15,  # iBeacon Type + Length
-                        *self.uuid_to_bytes(uuid),  # UUID (16 bytes)
+                        0x15,
+                        *self.uuid_to_bytes(uuid),
                         (major >> 8) & 0xFF,
-                        major & 0xFF,  # Major (2 bytes)
+                        major & 0xFF,
                         (minor >> 8) & 0xFF,
-                        minor & 0xFF,  # Minor (2 bytes)
-                        tx_power & 0xFF,  # TX Power (1 byte)
+                        minor & 0xFF,
+                        tx_power & 0xFF,
                     ],
                     signature="y",
                 )
@@ -46,10 +46,6 @@ class IBeaconAdvertisement(dbus.service.Object):
 
     @staticmethod
     def uuid_to_bytes(uuid):
-        """Convert UUID string to byte array."""
-        if len(uuid) != 36 or uuid.count("-") != 4:
-            raise ValueError(f"Invalid UUID format: {uuid}")
-
         cleaned_uuid = uuid.replace("-", "")
         return [
             int(cleaned_uuid[i : i + 2], 16) for i in range(0, len(cleaned_uuid), 2)
@@ -82,84 +78,87 @@ class IBeaconAdvertisement(dbus.service.Object):
         print(f"{self.path}: Released!")
 
 
-def register_ad_cb():
-    print("Advertisement registered successfully")
-
-
-def register_ad_error_cb(error):
-    print(f"Failed to register advertisement: {error}")
-    mainloop.quit()
-
-
-def get_mac_address():
-    """Get the MAC address of the Bluetooth adapter."""
+def set_custom_mac_vendor_command(new_mac):
+    """사용자 발견 방법으로 MAC 주소 변경"""
     try:
-        output = subprocess.check_output(
-            ["hciconfig", "hci0", "mad"], stderr=subprocess.STDOUT
-        ).decode("utf-8")
-        mac_address = re.search(r"BD Address:\s+([0-9A-F:]+)", output).group(1)
-        return mac_address
-    except (subprocess.CalledProcessError, AttributeError):
+        # MAC 주소 파싱 및 바이트 순서 변환
+        mac_parts = new_mac.replace(":", "")[-12:]  # 마지막 6바이트 추출
+        reversed_bytes = [
+            int(mac_parts[i : i + 2], 16)
+            for i in range(10, -1, -2)  # 역순으로 2자리씩 처리
+        ]
+
+        # HCI Vendor 명령 구성 (0x3F 0x001)
+        ogf = 0x3F
+        ocf = 0x001
+        cmd_bytes = [ogf, ocf] + reversed_bytes
+
+        # hcitool 명령 실행
+        subprocess.run(
+            ["sudo", "hcitool", "cmd"] + [f"0x{b:02x}" for b in cmd_bytes], check=True
+        )
+
+        # 블루투스 서비스 재시작
+        subprocess.run(
+            ["sudo", "systemctl", "restart", "bluetooth.service"], check=True
+        )
+        time.sleep(2)  # 재시작 대기
+
+        print(f"MAC 주소 변경 완료: {new_mac}")
+        return True
+    except Exception as e:
+        print(f"MAC 주소 변경 실패: {e}")
+        return False
+
+
+def get_current_mac():
+    """현재 MAC 주소 확인"""
+    try:
+        output = subprocess.check_output(["hciconfig", "hci0"]).decode()
+        return re.search(r"BD Address: ([\dA-F:]+)", output).group(1)
+    except:
         return "Unknown"
 
 
-def get_service_data_string(manufacturer_data):
-    """Convert manufacturer data to a formatted string."""
-    service_data_list = []
-    for key, value in manufacturer_data.items():
-        key_str = f"0x{key:04X}"
-        value_str = " ".join([f"0x{byte:02X}" for byte in value])
-        service_data_list.append(f"{key_str}: {value_str}")
-    return ", ".join(service_data_list)
-
-
 def main():
+    # MAC 주소 변경
+    target_mac = "03:23:45:67:89:AB"  # 원하는 주소로 변경
+    if not set_custom_mac_vendor_command(target_mac):
+        print("경고: MAC 주소 변경에 실패했지만 계속 진행합니다.")
+
+    # 실제 변경된 MAC 확인
+    current_mac = get_current_mac()
+    print(f"현재 MAC 주소: {current_mac}")
+
+    # 나머지 BLE 광고 설정
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-
     bus = dbus.SystemBus()
-    adapter_path = "/org/bluez/hci0"
-
-    ad_manager = dbus.Interface(
-        bus.get_object(BLUEZ_SERVICE_NAME, adapter_path),
-        LE_ADVERTISING_MANAGER_IFACE,
-    )
-
-    # iBeacon 파라미터 설정
-    uuid = "12345678-1234-1234-1234-1234567890AB"  # iBeacon UUID
-    major = 1  # Major 값
-    minor = 1  # Minor 값
-    tx_power = -59  # TX Power (1미터 거리의 RSSI 값)
-
-    # iBeacon Advertisement 생성
-    beacon = IBeaconAdvertisement(bus, 0, uuid, major, minor, tx_power)
-
-    # 시작 시 필요한 데이터 출력
-    mac_address = get_mac_address()
-    service_data_str = get_service_data_string(beacon.manufacturer_data)
-    print("-" * 30)
-    print("Starting iBeacon Simulation")
-    print("-" * 30)
-    print(f"MAC Address: {mac_address}")
-    print(f"UUID: {uuid}")
-    print(f"Major: {major}")
-    print(f"Minor: {minor}")
-    print(f"TX Power: {tx_power}")
-    print(f"Service Data: {service_data_str}")
-    print("-" * 30)
-
-    ad_manager.RegisterAdvertisement(
-        beacon.get_path(),
-        {},
-        reply_handler=register_ad_cb,
-        error_handler=register_ad_error_cb,
-    )
 
     try:
-        global mainloop
-        mainloop = GLib.MainLoop()
-        mainloop.run()
-    except KeyboardInterrupt:
-        print("Terminating...")
+        ad_manager = dbus.Interface(
+            bus.get_object(BLUEZ_SERVICE_NAME, "/org/bluez/hci0"),
+            LE_ADVERTISING_MANAGER_IFACE,
+        )
+
+        # iBeacon 파라미터 설정
+        beacon = IBeaconAdvertisement(
+            bus, 0, "12345678-1234-1234-1234-1234567890AB", 1, 1, -59
+        )
+
+        # 광고 등록
+        ad_manager.RegisterAdvertisement(
+            beacon.get_path(),
+            {},
+            reply_handler=lambda: print("광고 시작 성공"),
+            error_handler=lambda e: print(f"광고 시작 실패: {e}"),
+        )
+
+        # 메인 루프 실행
+        GLib.MainLoop().run()
+
+    except Exception as e:
+        print(f"에러 발생: {e}")
+    finally:
         ad_manager.UnregisterAdvertisement(beacon)
 
 
