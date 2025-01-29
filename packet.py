@@ -266,8 +266,8 @@ def parse_ble_packets(
                                     "수신 패킷",
                                     "초과 패킷",
                                     "RSSI 평균",
-                                    "Delta Time 평균 (s)",
-                                    "Delta Time 표준편차 (s)",
+                                    "Advertising Interval 평균 (s)",
+                                    "Advertising Interval 표준편차 (s)",
                                 ]
 
                                 # 헤더의 너비 계산
