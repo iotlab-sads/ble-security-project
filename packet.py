@@ -327,7 +327,7 @@ def parse_ble_packets(
                                     min(result["std_dev_delta_time"] for result in channel_results.values()), 6
                                 )
                                 # 일단 현재는 persistent로 고정
-                                data_to_save["advertising_pattern"] = "persistent"
+                                # data_to_save["advertising_pattern"] = "persistent"
 
                                 # MongoDB 저장
                                 save_to_mongodb(

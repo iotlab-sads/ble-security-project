@@ -160,63 +160,68 @@ def monitor_ble_traffic(interface, target_addr, target_uuid):
     for line in process.stdout:
         try:
             if line.strip() == "{" and json_buffer:
-                packet = json.loads("\n".join(json_buffer).rstrip(",\n"))
-                layers = packet.get("_source", {}).get("layers", {})
-                btle = layers.get("btle", {})
-                nordic_ble = layers.get("nordic_ble", {})
+                try:                
+                    packet = json.loads("\n".join(json_buffer).rstrip(",\n"))  # JSON 파싱
+                    layers = packet.get("_source", {}).get("layers", {})
+                    btle = layers.get("btle", {})
+                    nordic_ble = layers.get("nordic_ble", {})
 
-                # 패킷 정보 추출
-                address = btle.get("btle.advertising_address")
-                pdu_type = btle.get("btle.advertising_header_tree", {}).get(
-                    "btle.advertising_header.pdu_type"
-                )
-                uuid_data = (
-                    btle.get("btcommon.eir_ad.advertising_data", {})
-                    .get("btcommon.eir_ad.entry", {})
-                    .get("btcommon.eir_ad.entry.data")
-                )
-                timestamp = float(layers.get("frame", {}).get("frame.time_epoch", 0))
-                channel = nordic_ble.get("nordic_ble.channel")
+                    # 패킷 정보 추출
+                    address = btle.get("btle.advertising_address")
+                    pdu_type = btle.get("btle.advertising_header_tree", {}).get(
+                        "btle.advertising_header.pdu_type"
+                    )
+                    uuid_data = (
+                        btle.get("btcommon.eir_ad.advertising_data", {})
+                        .get("btcommon.eir_ad.entry", {})
+                        .get("btcommon.eir_ad.entry.data")
+                    )
+                    timestamp = float(layers.get("frame", {}).get("frame.time_epoch", 0))
+                    channel = nordic_ble.get("nordic_ble.channel")
 
-                # 필터링 조건 확인
-                addr_match = (target_addr == "all") or (address == target_addr)
-                uuid_match = (target_uuid == "all") or (
-                    uuid_data == transform_uuid(target_uuid)
-                )
+                    # 필터링 조건 확인
+                    addr_match = (target_addr == "all") or (address == target_addr)
+                    uuid_match = (target_uuid == "all") or (
+                        uuid_data == transform_uuid(target_uuid)
+                    )
 
-                if (
-                    addr_match
-                    and uuid_match
-                    and pdu_type == "0x00"
-                    and channel in ["37", "38", "39"]
-                ):
-                    device_id = target_uuid if target_uuid != "all" else address
-                    min_delta = get_min_delta(device_id)
+                    if (
+                        addr_match
+                        and uuid_match
+                        and pdu_type == "0x00"
+                        # and channel in ["37", "38", "39"]
+                    ):
+                        device_id = target_uuid if target_uuid != "all" else address
+                        min_delta = get_min_delta(device_id)
 
-                    if not min_delta:
-                        continue
+                        if not min_delta:
+                            continue
 
-                    # 시간 간격 계산
-                    last_time = last_timestamps.get(device_id)
-                    current_time = timestamp
+                        # 시간 간격 계산
+                        last_time = last_timestamps.get(device_id)
+                        current_time = timestamp
 
-                    if last_time is not None:
-                        delta = current_time - last_time
+                        if last_time is not None:
+                            delta = current_time - last_time
 
-                        if delta < min_delta:
-                            print(f"[!] 스푸핑 탐지! ({device_id})")
-                            print(
-                                f"    측정 간격: {delta:.6f}s < 허용 최소: {min_delta:.6f}s"
-                            )
-                            send_alert_email(device_id, delta, min_delta)
+                            if delta < min_delta:
+                                print(f"[!] 스푸핑 탐지! ({device_id})")
+                                print(
+                                    f"    측정 간격: {delta:.6f}s < 허용 최소: {min_delta:.6f}s"
+                                )
+                                send_alert_email(device_id, delta, min_delta)
 
-                    last_timestamps[device_id] = current_time
-
-        except json.JSONDecodeError:
-            pass
-        finally:
-            json_buffer = []
-        json_buffer.append(line.strip())
+                        last_timestamps[device_id] = current_time
+                    json_buffer = []
+                except json.JSONDecodeError as e:
+                    pass
+                finally:
+                    json_buffer = []
+            json_buffer.append(line.strip())
+        except KeyboardInterrupt:
+            print("\nBLE 패킷 캡처 종료.")
+            process.terminate()
+            sys.exit(1)
 
 
 def transform_uuid(uuid_str):
