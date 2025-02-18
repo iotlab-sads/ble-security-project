@@ -1,4 +1,4 @@
-# nrf-sniffer-test
+# BLE Security Project
 
 ## Overview
 
